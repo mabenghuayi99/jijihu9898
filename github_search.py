@@ -13,7 +13,6 @@ import gzip
 import shutil
 import zipfile
 import urllib.request
-import random
 from urllib.parse import quote_plus, urlparse
 
 # ===================== 配置区 =====================
@@ -1334,6 +1333,25 @@ def main():
     print(f"    - 排雷完毕！获得纯净防崩节点: {len(safe_nodes)} / {len(tcp_alive_nodes)}")
     if not safe_nodes: sys.exit(1)
 
+    # ==================== 🚀 新增环节：发送【测速前全量包】 ====================
+    print("\n[*] [阶段汇报] 正在向 Telegram 推送【测速前全量防崩节点】...")
+    pre_nodes = [p.copy() for p in safe_nodes]
+    pre_yaml_content = generate_clash_yaml(pre_nodes)
+    pre_file_obj = io.BytesIO(pre_yaml_content.encode("utf-8"))
+    pre_file_obj.name = f"PreTest_TG_GeoNodes_{len(safe_nodes)}.yaml"
+
+    pre_payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "caption": f"🚀 <b>[测速前全量包] 待测节点档案</b>\n\n🎯 <b>节点总数:</b> {len(safe_nodes)} 个\n🛡 <b>当前进度:</b> 已通过 TCP预筛 & 语法校验\n🌍 <b>节点名称:</b> 已注入 GeoIP 归属地\n⏳ <b>下一步:</b> 即将启动耗时 Mihomo 真机测速...",
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument", data=pre_payload, files={"document": pre_file_obj}, timeout=60)
+        print("  ✓ 测速前全量包推送成功！")
+    except Exception as e:
+        print(f"  ✗ 测速前全量包推送异常: {e}")
+    # =======================================================================
+
     # 6. Mihomo 真机验证 (漏斗3) - 全量分批测试汇总版
     print("\n[*] [漏斗三] 启动 Mihomo 内核进行底层真机 HTTP 验证 (智能分批测速)...")
     
@@ -1384,20 +1402,20 @@ def main():
         print("\n[!] 灾难级情况：所有批次测速完毕，没有发现任何存活节点！")
         sys.exit(1)
 
-    # 7. 生成报告
-    print("\n[*] 推送至 Telegram...")
+    # 7. 生成报告 (最终极品测速包)
+    print("\n[*] 推送【测速后极品包】至 Telegram...")
     yaml_content = generate_clash_yaml(alive_proxies)
     file_obj = io.BytesIO(yaml_content.encode("utf-8"))
     file_obj.name = f"Ultimate_TG_GeoNodes_{len(alive_proxies)}.yaml"
 
-    payload = {
+    payload_final = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "caption": f"👑 <b>[Telegram 终极兵器] 专属配置</b>\n\n🎯 <b>入库节点:</b> {len(alive_proxies)} 个\n📡 <b>侦察频道:</b> {len(TG_CHANNELS)} 个\n🛡 <b>验证引擎:</b> 极速并发预筛 + 分批真机测速\n🌍 <b>命名优化:</b> GeoIP归属地解析\n🕒 <b>时间:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "caption": f"👑 <b>[Telegram 极品专属配置]</b>\n\n🎯 <b>测速后存活:</b> {len(alive_proxies)} 个\n📡 <b>侦察频道:</b> {len(TG_CHANNELS)} 个\n🛡 <b>验证引擎:</b> 极速并发预筛 + 分批真机测速\n🌍 <b>命名优化:</b> GeoIP归属地解析\n🕒 <b>时间:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "parse_mode": "HTML"
     }
     try:
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument", data=payload, files={"document": file_obj}, timeout=60)
-        print("  ✓ 推送成功！")
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument", data=payload_final, files={"document": file_obj}, timeout=60)
+        print("  ✓ 最终极品包推送成功！")
     except Exception as e:
         print(f"  ✗ 推送异常: {e}")
 
