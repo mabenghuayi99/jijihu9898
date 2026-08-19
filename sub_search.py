@@ -12,9 +12,9 @@ from urllib.parse import quote_plus, urlparse
 GITHUB_TOKEN = os.getenv("PYTHON_GH_TOKEN") or os.getenv("MY_GH_TOKEN") or os.getenv("GITHUB_TOKEN")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GITHUB_REPO = os.getenv("GITHUB_REPOSITORY")  # 必须配置，用于保存记忆文件
+GITHUB_REPO = os.getenv("GITHUB_REPOSITORY")
 
-MEMORY_FILE_PATH = "sub_learned_domains.txt" # 订阅域名的专属记忆文件
+MEMORY_FILE_PATH = "sub_learned_domains.txt"
 
 # 1. 基础探针词 (种子)
 SEARCH_QUERIES = [
@@ -96,10 +96,13 @@ def save_learned_domains(domains_set, sha):
     except Exception as e:
         print(f"  ✗ 记忆同步异常: {e}")
 
-# ----------------- 🔍 Github 搜索与提取模块 -----------------
+# ----------------- 🔍 Github 精准控频搜索模块 -----------------
 def search_github_files(keywords, pass_name="搜索"):
     file_urls = set()
-    print(f"\n[*] 开始【{pass_name}】(代码搜索)，探针数量: {len(keywords)}")
+    total_kws = len(keywords)
+    est_time = (total_kws * 2 * 2.5) / 60
+    print(f"\n[*] 开始【{pass_name}】(共 {total_kws} 个探针)")
+    print(f"[*] 严格控频模式开启 (24次/分钟)，预计平稳耗时约 {est_time:.1f} 分钟...")
 
     for kw_idx, keyword in enumerate(keywords, 1):
         if len(file_urls) >= MAX_FILES: break
@@ -107,13 +110,13 @@ def search_github_files(keywords, pass_name="搜索"):
         search_term = keyword.replace("https://", "").replace("http://", "")
         if len(search_term) > 60: search_term = search_term[:60]
         
-        # 加上双引号精确匹配
         q_str = f'"{search_term}"' if "=" not in search_term else search_term
 
-        print(f"  [{kw_idx}/{len(keywords)}] 搜索词: {search_term[:40]}...")
+        print(f"  [{kw_idx}/{total_kws}] 搜索词: {search_term[:40]}...")
 
         page = 1
-        while page <= 3 and len(file_urls) < MAX_FILES:
+        # 只搜 2 页 (最新 200 个文件已经足够，节省请求额度)
+        while page <= 2 and len(file_urls) < MAX_FILES:
             params = {
                 "q": q_str,
                 "sort": "indexed", 
@@ -127,10 +130,22 @@ def search_github_files(keywords, pass_name="搜索"):
             except Exception as e:
                 print(f"    - 搜索异常: {e}"); break
 
+            # 限流处理机制
             if r.status_code in [403, 429]:
-                reset_timestamp = int(r.headers.get("X-RateLimit-Reset", time.time() + 60))
-                wait_time = max(1, reset_timestamp - int(time.time()) + 1)
-                print(f"    [!] 触发限流，智能等待 {wait_time} 秒至重置...")
+                retry_after = r.headers.get("Retry-After")
+                if retry_after:
+                    wait_time = int(retry_after) + 1
+                else:
+                    reset_timestamp = int(r.headers.get("X-RateLimit-Reset", time.time() + 60))
+                    wait_time = max(1, reset_timestamp - int(time.time()) + 1)
+                
+                # 🚀 熔断机制：如果惩罚超过 10 分钟 (600秒)，带着现有数据直接跑路，防止 Action 超时报错！
+                if wait_time > 600:
+                    print(f"    [!] 触发深度限流 (需等待 {wait_time} 秒)。触发熔断机制！")
+                    print("    [!] 提前结束搜索，带走已有数据进入提取环节...")
+                    return list(file_urls)[:MAX_FILES]
+
+                print(f"    [!] 触发基础限流，智能等待 {wait_time} 秒至重置...")
                 time.sleep(wait_time)
                 continue 
                 
@@ -148,7 +163,10 @@ def search_github_files(keywords, pass_name="搜索"):
                     new_count += 1
 
             page += 1
-            time.sleep(2.5) # 防封禁间隔
+            
+            # ⏱️ 核心控频点：每次请求后严格休眠 2.5 秒
+            # 这保证了每分钟最高只发 24 次请求，完全躲避 30 次/分钟 的雷区
+            time.sleep(2.5) 
 
     return list(file_urls)[:MAX_FILES]
 
@@ -180,7 +198,6 @@ def extract_infection_domains(links, known_domains):
         try:
             domain = urlparse(link).netloc.lower()
             if not domain or any(b in domain for b in BLACKLIST_DOMAINS): continue
-            # 排除纯 IP
             if re.match(r'^\d+\.\d+\.\d+\.\d+(:\d+)?$', domain): continue
             
             clean_domain = domain.split(':')[0]
@@ -193,33 +210,30 @@ def extract_infection_domains(links, known_domains):
 # ===================== 🚀 主函数入口 =====================
 def main():
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("错误: 缺少 Telegram 环境变量配置 (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)")
+        print("错误: 缺少 Telegram 环境变量配置")
         sys.exit(1)
 
     print("="*50)
-    print(" 🚀 启动 [订阅自动收割机] (AI 感染进化版)")
+    print(" 🚀 启动 [订阅自动收割机] (平稳控流+全部搜刮版)")
     print("="*50)
 
-    # 1. 加载大脑记忆
+    # 1. 加载大脑记忆，组合全部搜刮词
     learned_domains, memory_sha = load_learned_domains()
     known_all_domains = set(SEARCH_QUERIES) | learned_domains
     
+    # 彻底取消随机抽取，全部加入搜索大军！
+    active_keywords = SEARCH_QUERIES + list(learned_domains)
+    
     if learned_domains:
         print(f"[*] 唤醒记忆，当前已积累 {len(learned_domains)} 个机场订阅域名。")
-        import random
-        # 混合基础词和随机记忆词
-        active_keywords = SEARCH_QUERIES + random.sample(list(learned_domains), min(len(learned_domains), 10))
-    else:
-        active_keywords = SEARCH_QUERIES
 
-    # 动态组装白名单：基础特征 + 所有的域名
     dynamic_filters = BASE_FILTER_KEYWORDS + list(known_all_domains)
 
-    # 2. 第一波搜索 (初次感染)
-    file_urls_pass1 = search_github_files(active_keywords, "初次搜刮")
+    # 2. 第一波平稳搜索
+    file_urls_pass1 = search_github_files(active_keywords, "初次全量搜刮")
     if not file_urls_pass1:
-        print("未搜索到有效代码文件，提早下班。")
-        sys.exit(1)
+        print("[!] 未搜索到有效代码文件，提前下班。")
+        sys.exit(0) # 改为 0 正常退出，防止 Action 报红
 
     all_extracted_links = set()
     print(f"\n[*] 正在并发降维解析 {len(file_urls_pass1)} 个文件...")
@@ -231,25 +245,25 @@ def main():
     # 3. 提取特征，触发二次感染
     new_domains = extract_infection_domains(all_extracted_links, known_all_domains)
     if new_domains:
-        print(f"\n[🧠 记忆进化!] 从提取的链接中，裂变出 {len(new_domains)} 个全新机场域名！")
+        print(f"\n[🧠 记忆裂变!] 恭喜，本次发现了 {len(new_domains)} 个全新机场域名！")
         learned_domains.update(new_domains)
         save_learned_domains(learned_domains, memory_sha)
         
-        # 将新学到的域名马上加入过滤白名单
         dynamic_filters.extend(new_domains)
         
-        # 取最新的 5 个域名发起二次暴击搜索
+        # 二次感染搜索取最新的 5 个，不再拉满全量
         file_urls_pass2 = search_github_files(list(new_domains)[:5], "二次深度感染")
         
-        print(f"\n[*] 正在并发解析二次感染的 {len(file_urls_pass2)} 个文件...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
-            futures = [executor.submit(download_and_extract, url, dynamic_filters) for url in file_urls_pass2]
-            for future in concurrent.futures.as_completed(futures):
-                all_extracted_links.update(future.result())
+        if file_urls_pass2:
+            print(f"\n[*] 正在并发解析二次感染的 {len(file_urls_pass2)} 个文件...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+                futures = [executor.submit(download_and_extract, url, dynamic_filters) for url in file_urls_pass2]
+                for future in concurrent.futures.as_completed(futures):
+                    all_extracted_links.update(future.result())
 
     if not all_extracted_links:
-        print("[!] 灾难级情况：提取完毕，没有找到任何有效订阅链接！")
-        sys.exit(1)
+        print("[!] 解析完毕，没有提取到有效的订阅链接。")
+        sys.exit(0)
 
     all_links_sorted = sorted(set(all_extracted_links))
     print(f"\n[*] 任务完美结束！共刮出 {len(all_links_sorted)} 个订阅链接。")
@@ -258,12 +272,12 @@ def main():
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
     txt_all_content = "\n".join(all_links_sorted)
     file_all_obj = io.BytesIO(txt_all_content.encode("utf-8"))
-    file_all_obj.name = f"Sub_Links_{len(all_links_sorted)}.txt"
+    file_all_obj.name = f"Sub_Links_Auto_{len(all_links_sorted)}.txt"
 
-    evo_text = f"🧬 <b>AI进化:</b> 本次裂变 {len(new_domains)} 个新机场\n" if new_domains else ""
+    evo_text = f"🧬 <b>AI进化:</b> 本次新收录 {len(new_domains)} 个机场\n" if new_domains else ""
     payload_all = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "caption": f"📂 <b>[全网订阅收割包] (AI进化版)</b>\n\n🎯 <b>提取数量:</b> {len(all_links_sorted)} 个链接\n{evo_text}🛡 <b>模式:</b> 宽进严出 + 二次感染\n🕒 <b>时间:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "caption": f"📂 <b>[全网订阅收割包] (全量稳健版)</b>\n\n🎯 <b>提取数量:</b> {len(all_links_sorted)} 个链接\n{evo_text}🛡 <b>模式:</b> 全量遍历 + 控频防封 + 记忆裂变\n🕒 <b>时间:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "parse_mode": "HTML"
     }
 
