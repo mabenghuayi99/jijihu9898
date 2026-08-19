@@ -166,7 +166,7 @@ def search_github_files(keywords, pass_name="搜索"):
             
             # ⏱️ 核心控频点：每次请求后严格休眠 2.5 秒
             # 这保证了每分钟最高只发 24 次请求，完全躲避 30 次/分钟 的雷区
-            time.sleep(2.5) 
+            time.sleep(2.3) 
 
     return list(file_urls)[:MAX_FILES]
 
