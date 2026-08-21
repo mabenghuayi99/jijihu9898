@@ -23,17 +23,17 @@ TEST_TIMEOUT = 12
 
 SEEDS_FILE = "seeds_domains.txt"
 
-# ==================== Google Dorks 专属挖掘词（SERPER 安全防错版） ====================
+# ==================== Google Dorks 专属挖掘词（彻底剥离特殊语法纯净版） ====================
 KEYWORDS = [
     'api/v1/client/subscribe',
     'osubscribe.php?sid',
     'sub?target=clash',
     'subscribe?token',
     'type: hysteria2',
-    'site:pastebin.com subscribe',
-    'site:telegra.ph 免费节点 订阅',
-    'site:rentry.co clash节点',
-    'site:t.me/s/ subscribe',
+    'pastebin.com subscribe token',
+    'telegra.ph 免费节点 订阅',
+    'rentry.co clash节点',
+    't.me subscribe 节点',
     '免费机场 订阅 2026',
     '白嫖机场 订阅 clash',
     '机场面板 订阅 v2board',
@@ -208,13 +208,13 @@ def search_serper(query: str, num: int = 100) -> list[dict]:
     payload = {"q": clean_query, "num": num}
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        if resp.status_code == 400:
-            print(f"    [ERROR] 400 → {clean_query[:70]}")
+        # 增加详细报错打印，若非200直接打印完整错误信息
+        if resp.status_code != 200:
+            print(f"    [ERROR] HTTP {resp.status_code} → {resp.text} (Query: {clean_query[:50]}...)")
             return []
-        resp.raise_for_status()
         return resp.json().get("organic", [])
     except Exception as e:
-        print(f"    [ERROR] 搜索失败: {e}")
+        print(f"    [ERROR] 搜索请求失败: {e}")
         return []
 
 def is_potential_sub_link(url: str) -> bool:
@@ -403,7 +403,7 @@ def main():
         print("❌ 缺少 SERPER_API_KEY 环境变量")
         return
 
-    print("🚀 真实订阅域名最终完整版 + SERPER 安全词防错启动")
+    print("🚀 真实订阅域名最终完整版 + SERPER 安全词纯净提取版启动")
     beijing = timezone(timedelta(hours=8))
     now = datetime.now(beijing).strftime("%Y-%m-%d %H:%M:%S")
     time_tag = datetime.now().strftime("%Y%m%d_%H%M")
@@ -423,7 +423,7 @@ def main():
 
     all_candidates = set()
 
-    # ========== 1. 关键词搜索 (SERPER 安全词) ==========
+    # ========== 1. 关键词搜索 (安全词防错版) ==========
     print(f"\n{'='*60}")
     print(f"===== ① 关键词搜索（安全词捕获公开泄露）=====")
     print(f"{'='*60}")
@@ -440,14 +440,15 @@ def main():
 
     print(f"\n✅ 关键词搜索完成，当前候选链接: {len(all_candidates)}")
 
-    # ========== 2. 真实订阅域名定向搜索（套路一：纯链接精准榨取版） ==========
+    # ========== 2. 真实订阅域名定向搜索（安全无引号直取版） ==========
     print(f"\n{'='*60}")
     print(f"===== ② 真实订阅域名定向搜索（共 {len(seeds)} 个种子）=====")
     print(f"{'='*60}")
     for idx, domain in enumerate(seeds, 1):
         print(f"  [{idx}/{len(seeds)}] → {domain}")
         
-        query = f'"{domain}" token sid clash sub'
+        # ⚠️ 安全核心修复：没有任何双引号，只有自然连接的纯文本。
+        query = f"{domain} token sid clash sub"
         
         results = search_serper(query, 60)
         found = extract_links_from_results(results)
@@ -455,7 +456,7 @@ def main():
         
         time.sleep(0.8)
 
-    # ========== 3. 深度提取（从网页/分享贴中扒出直链） ==========
+    # ========== 3. 深度提取 ==========
     all_direct_links = batch_extract_links(all_candidates)
     all_direct_links = sorted(list(all_direct_links))
     print(f"\n📦 深度提取完成，最终锁定 {len(all_direct_links)} 个纯直链候选")
