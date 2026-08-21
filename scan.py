@@ -13,10 +13,28 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-NUM_RESULTS = 100
+NUM_RESULTS = 100          # 最大值
 SLEEP_BETWEEN_KEYWORDS = 1.5
 MAX_WORKERS = 30
 TEST_TIMEOUT = 12
+
+# 高价值站点（优先搜）
+HIGH_VALUE_SITES = [
+    "youtube.com",
+    "bilibili.com",
+    "tieba.baidu.com",
+]
+
+# 低价值社交平台（降低频率，避免浪费额度）
+LOW_VALUE_SITES = [
+    "facebook.com",
+    "x.com",
+    "twitter.com",
+    "instagram.com",
+    "xiaohongshu.com",
+    "douyin.com",
+    "tiktok.com",
+]
 
 KEYWORDS = [
     "sub.xjhsub1.top/api/v1/client/subscribe?token=",
@@ -79,7 +97,7 @@ KEYWORDS = [
     "sub=3&extend=1",
     "login.yfjc.xyz",
     "sf.342242.icu",
-    "efanyunapi",
+    "efanyunapi.com",
     "gates.djjc.cfd",
     "jsjc.cfd",
     "w.12.kg",
@@ -92,13 +110,12 @@ KEYWORDS = [
 # ==================== 工具函数 ====================
 
 def search_serper(query: str, num: int = 100, endpoint: str = "search") -> list[dict]:
-    """支持普通搜索和视频搜索"""
     url = f"https://google.serper.dev/{endpoint}"
     headers = {
         "X-API-KEY": SERPER_API_KEY,
         "Content-Type": "application/json",
     }
-    payload = {"q": query, "num": num}
+    payload = {"q": query, "num": min(num, 100)}  # 强制不超过100
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=30)
         resp.raise_for_status()
@@ -107,7 +124,7 @@ def search_serper(query: str, num: int = 100, endpoint: str = "search") -> list[
             return data.get("videos", [])
         return data.get("organic", [])
     except Exception as e:
-        print(f"[ERROR] {endpoint} 搜索失败: {e}")
+        print(f"[ERROR] 搜索失败: {e}")
         return []
 
 
@@ -116,11 +133,15 @@ def is_potential_sub_link(url: str) -> bool:
         return False
     url_lower = url.lower()
 
+    # 排除平台页面
     exclude = [
         "google.", "youtube.com/watch", "youtube.com/channel", "youtu.be",
-        "facebook.", "twitter.", "x.com", "github.com", "stackoverflow",
-        "wikipedia.", "microsoft.", "apple.com", "amazon.", "baidu.com",
-        "zhihu.com", "bilibili.", "qq.com", "taobao."
+        "facebook.com/", "fb.com/", "x.com/", "twitter.com/",
+        "github.com", "stackoverflow", "wikipedia.", "microsoft.", "apple.com",
+        "amazon.", "baidu.com/s", "zhihu.com", "bilibili.com/video",
+        "qq.com", "taobao.", "xiaohongshu.com/explore", "douyin.com/video",
+        "instagram.com/p/", "instagram.com/reel/", "tiktok.com/@",
+        "tieba.baidu.com/p/", "tieba.baidu.com/f"
     ]
     if any(x in url_lower for x in exclude):
         return False
@@ -134,35 +155,32 @@ def is_potential_sub_link(url: str) -> bool:
     ]
     if any(p in url_lower for p in positive):
         return True
-    if len(url) > 70:
+    if len(url) > 65:
         return True
     return False
 
 
 def extract_links_from_results(results: list[dict]) -> set[str]:
     links = set()
-    url_pattern = re.compile(r'https?://[^\s<>"\'\)\]\}\{\|,\\\\]{12,500}')
+    url_pattern = re.compile(r'https?://[^\s<>"\'\)\]\}\{\|,\\\\]{10,600}')
 
     for item in results:
-        # 结果自带的 link
         link = item.get("link", "").strip()
         if link:
             clean = link.rstrip('.,;:!?)\'\"')
             if is_potential_sub_link(clean):
                 links.add(clean)
 
-        # title + snippet 里提取（视频的 snippet 经常有描述链接）
         text = " ".join([
             item.get("title", ""),
             item.get("snippet", ""),
             item.get("link", ""),
-            item.get("description", "")  # 有些接口会返回
+            item.get("description", "")
         ])
         for m in url_pattern.findall(text):
             clean = m.rstrip('.,;:!?)\'\"')
             if is_potential_sub_link(clean):
                 links.add(clean)
-
     return links
 
 
@@ -172,32 +190,33 @@ def is_alive(url: str) -> tuple[str, bool, str]:
         "Accept": "*/*",
     }
     try:
-        r = requests.get(url, headers=headers, timeout=TEST_TIMEOUT, allow_redirects=True, stream=True)
-        if r.status_code != 200:
-            return url, False, f"HTTP {r.status_code}"
+        # 使用 with 语句包裹 requests.get，安全释放连接资源
+        with requests.get(url, headers=headers, timeout=TEST_TIMEOUT, allow_redirects=True, stream=True) as r:
+            if r.status_code != 200:
+                return url, False, f"HTTP {r.status_code}"
 
-        content = b""
-        for chunk in r.iter_content(1024):
-            content += chunk
-            if len(content) >= 4096:
-                break
+            content = b""
+            for chunk in r.iter_content(1024):
+                if chunk:
+                    content += chunk
+                if len(content) >= 4096:
+                    break
 
-        text = content.decode("utf-8", errors="ignore").lower()
-
-        signs = [
-            "proxies:", "proxy-groups:", "rules:", "port:", "socks-port:",
-            "vmess://", "vless://", "trojan://", "ss://", "ssr://", "hysteria",
-            "uuid", "cipher:", "password:", "network:", "ws-opts", "grpc-opts",
-            "server:", "tls:", "reality", "flow:", "client-fingerprint"
-        ]
-        if any(s in text for s in signs):
-            return url, True, "存活"
-        if len(text.strip()) > 120 and "error" not in text[:400] and "not found" not in text[:400]:
-            return url, True, "可能存活"
-        return url, False, "内容不像订阅"
-
-    except requests.exceptions.Timeout:
-        return url, False, "超时"
+            text = content.decode("utf-8", errors="ignore").lower()
+            signs = [
+                "proxies:", "proxy-groups:", "rules:", "port:", "socks-port:",
+                "vmess://", "vless://", "trojan://", "ss://", "ssr://", "hysteria",
+                "uuid", "cipher:", "password:", "network:", "ws-opts", "grpc-opts",
+                "server:", "tls:", "reality", "flow:", "client-fingerprint"
+            ]
+            if any(s in text for s in signs):
+                return url, True, "存活"
+            if len(text.strip()) > 120 and "error" not in text[:400] and "not found" not in text[:400]:
+                return url, True, "可能存活"
+            return url, False, "内容不像订阅"
+            
+    except requests.exceptions.RequestException as e:
+        return url, False, f"网络错误: {str(e)[:20]}"
     except Exception as e:
         return url, False, str(e)[:40]
 
@@ -221,7 +240,6 @@ def send_txt_file(file_path: str, caption: str = "") -> bool:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[WARN] 未配置 Telegram")
         return False
-
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
     try:
         with open(file_path, "rb") as f:
@@ -256,7 +274,7 @@ def main():
         print("❌ 缺少 SERPER_API_KEY")
         return
 
-    print(f"🚀 开始扫描，共 {len(KEYWORDS)} 个关键词（含 YouTube 专项）")
+    print(f"🚀 开始扫描，共 {len(KEYWORDS)} 个关键词（优化策略版）")
     beijing = timezone(timedelta(hours=8))
     now = datetime.now(beijing).strftime("%Y-%m-%d %H:%M:%S")
     time_tag = datetime.now().strftime("%Y%m%d_%H%M")
@@ -265,58 +283,63 @@ def main():
 
     for idx, kw in enumerate(KEYWORDS, 1):
         print(f"\n[{idx}/{len(KEYWORDS)}] {kw}")
-
         found = set()
 
-        # 1. 普通网页搜索
-        results1 = search_serper(kw, NUM_RESULTS, "search")
-        found |= extract_links_from_results(results1)
+        # ===== 高价值搜索（必须跑）=====
+        # 1. 普通搜索
+        results = search_serper(kw, 100)
+        found |= extract_links_from_results(results)
 
-        # 2. 加相关词
-        results2 = search_serper(f"{kw} (subscribe OR clash OR v2ray OR token)", NUM_RESULTS, "search")
-        found |= extract_links_from_results(results2)
+        # 2. 相关词搜索
+        results = search_serper(f"{kw} (subscribe OR clash OR v2ray OR token OR 订阅)", 100)
+        found |= extract_links_from_results(results)
 
-        # 3. 专门搜 YouTube 网页
-        results3 = search_serper(f"{kw} site:youtube.com", NUM_RESULTS, "search")
-        found |= extract_links_from_results(results3)
+        # 3. 精确短语（长关键词很有效）
+        if len(kw) > 20:
+            results = search_serper(f'"{kw}"', 100)
+            found |= extract_links_from_results(results)
 
-        # 4. 视频搜索（重点抓 YouTube 视频描述里的链接）
-        results4 = search_serper(kw, min(NUM_RESULTS, 50), "videos")
-        found |= extract_links_from_results(results4)
+        # 4. YouTube 视频搜索
+        results = search_serper(kw, 50, "videos")
+        found |= extract_links_from_results(results)
 
-        # 5. 长关键词再加精确搜索
-        if len(kw) > 25:
-            results5 = search_serper(f'"{kw}"', NUM_RESULTS, "search")
-            found |= extract_links_from_results(results5)
+        # 5. 高价值站点
+        for site in HIGH_VALUE_SITES:
+            results = search_serper(f"{kw} site:{site}", 100)
+            found |= extract_links_from_results(results)
+            time.sleep(0.3)
+
+        # ===== 低价值社交平台（每 3 个关键词才跑一次，节省额度）=====
+        if idx % 3 == 1:
+            for site in LOW_VALUE_SITES:
+                results = search_serper(f"{kw} site:{site}", 100)
+                found |= extract_links_from_results(results)
+                time.sleep(0.3)
 
         print(f"  本轮找到 {len(found)} 个候选")
         all_candidates.update(found)
-
         time.sleep(SLEEP_BETWEEN_KEYWORDS)
 
     all_candidates = sorted(all_candidates)
     print(f"\n📦 总共收集到 {len(all_candidates)} 个候选链接")
 
-    # 1. 发送完整候选列表
+    # 发送完整候选
     full_filename = f"full_candidates_{time_tag}.txt"
-    caption_full = f"📋 完整候选订阅列表\n时间: {now}\n数量: {len(all_candidates)}"
-    save_and_send(all_candidates, full_filename, caption_full)
+    save_and_send(all_candidates, full_filename, f"📋 完整候选订阅列表\n时间: {now}\n数量: {len(all_candidates)}")
 
     if not all_candidates:
-        print("没有候选链接，结束")
         return
 
-    # 2. 测活
+    # 测活
     alive_links = batch_test(all_candidates)
     alive_links = sorted(set(alive_links))
     print(f"\n✅ 测活完成：存活 {len(alive_links)} / {len(all_candidates)}")
 
-    # 3. 发送测活后列表
+    # 发送存活列表
     alive_filename = f"alive_subs_{time_tag}.txt"
-    caption_alive = f"✅ 测活后存活订阅列表\n时间: {now}\n候选: {len(all_candidates)} | 存活: {len(alive_links)}"
-    save_and_send(alive_links, alive_filename, caption_alive)
+    save_and_send(alive_links, alive_filename, f"✅ 测活后存活订阅列表\n时间: {now}\n候选: {len(all_candidates)} | 存活: {len(alive_links)}")
 
-    print("全部完成，两个文件都已发送")
+    print("全部完成")
 
 
 if __name__ == "__main__":
