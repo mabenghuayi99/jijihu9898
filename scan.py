@@ -190,33 +190,30 @@ def is_alive(url: str) -> tuple[str, bool, str]:
         "Accept": "*/*",
     }
     try:
-        # 使用 with 语句包裹 requests.get，安全释放连接资源
-        with requests.get(url, headers=headers, timeout=TEST_TIMEOUT, allow_redirects=True, stream=True) as r:
-            if r.status_code != 200:
-                return url, False, f"HTTP {r.status_code}"
+        r = requests.get(url, headers=headers, timeout=TEST_TIMEOUT, allow_redirects=True, stream=True)
+        if r.status_code != 200:
+            return url, False, f"HTTP {r.status_code}"
 
-            content = b""
-            for chunk in r.iter_content(1024):
-                if chunk:
-                    content += chunk
-                if len(content) >= 4096:
-                    break
+        content = b""
+        for chunk in r.iter_content(1024):
+            content += chunk
+            if len(content) >= 4096:
+                break
 
-            text = content.decode("utf-8", errors="ignore").lower()
-            signs = [
-                "proxies:", "proxy-groups:", "rules:", "port:", "socks-port:",
-                "vmess://", "vless://", "trojan://", "ss://", "ssr://", "hysteria",
-                "uuid", "cipher:", "password:", "network:", "ws-opts", "grpc-opts",
-                "server:", "tls:", "reality", "flow:", "client-fingerprint"
-            ]
-            if any(s in text for s in signs):
-                return url, True, "存活"
-            if len(text.strip()) > 120 and "error" not in text[:400] and "not found" not in text[:400]:
-                return url, True, "可能存活"
-            return url, False, "内容不像订阅"
-            
-    except requests.exceptions.RequestException as e:
-        return url, False, f"网络错误: {str(e)[:20]}"
+        text = content.decode("utf-8", errors="ignore").lower()
+        signs = [
+            "proxies:", "proxy-groups:", "rules:", "port:", "socks-port:",
+            "vmess://", "vless://", "trojan://", "ss://", "ssr://", "hysteria",
+            "uuid", "cipher:", "password:", "network:", "ws-opts", "grpc-opts",
+            "server:", "tls:", "reality", "flow:", "client-fingerprint"
+        ]
+        if any(s in text for s in signs):
+            return url, True, "存活"
+        if len(text.strip()) > 120 and "error" not in text[:400] and "not found" not in text[:400]:
+            return url, True, "可能存活"
+        return url, False, "内容不像订阅"
+    except requests.exceptions.Timeout:
+        return url, False, "超时"
     except Exception as e:
         return url, False, str(e)[:40]
 
