@@ -1,0 +1,52 @@
+name: Airport Sub Scanner
+
+on:
+  schedule:
+    # 每 7 天运行一次（UTC 00:00 = 北京时间 08:00）
+    - cron: '0 0 */7 * *'
+  workflow_dispatch:              # 允许手动触发
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write             # 必须有，才能提交 seeds_domains.txt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run scanner
+        env:
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scan.py
+
+      - name: Commit updated seeds
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 先拉取远程最新代码，避免冲突
+          git pull --rebase origin main || true
+          
+          git add seeds_domains.txt || true
+          
+          # 只有有变化才提交
+          if ! git diff --quiet --cached; then
+            git commit -m "chore: update seeds_domains.txt [skip ci]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
