@@ -45,11 +45,11 @@ jobs:
           git config --local user.name "github-actions[bot]"
           
           # 1. 先把修改加到暂存区
-          git add seeds_domains.txt || true
+          git add github-sub-hunter.txt || true
           
           # 2. 检查是否有文件变化，如果有，先在本地 commit
           if ! git diff --quiet --cached; then
-            git commit -m "chore: update seeds_domains.txt [skip ci]"
+            git commit -m "chore: update github-sub-hunter.txt [skip ci]"
             
             # 3. 在 push 前的最后一刻拉取最新代码，自动把本地提交接到远程提交的后面
             # 注意：如果你的主分支不叫 main 而是 master，请把下面两行的 main 改为 master
