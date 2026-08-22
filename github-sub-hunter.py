@@ -5,7 +5,9 @@ import os
 import re
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 from pathlib import Path
 
 # ==================== 配置 ====================
@@ -13,7 +15,9 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")          # 强烈建议配置
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-SEEDS_FILE = "seeds_domains.txt"
+MAX_WORKERS = 25
+TEST_TIMEOUT = 12
+SEEDS_FILE = "github-sub-hunter.txt"
 GITHUB_SEARCH_PER_PAGE = 50
 MAX_PAGES_PER_QUERY = 1              # 每个查询最多翻页数
 
@@ -60,6 +64,7 @@ KEYWORDS = [
 
 # ==================== 完整 INITIAL_SEEDS ====================
 INITIAL_SEEDS = [
+    # 核心高频
     "nydy.cc", "22na.cn", "fb.22na.cn", "sealosgzg.site", "sub.cocoduck.cc",
     "cdc502.online", "xnyun.wiki", "skygo0527.top", "onlineweb.work", "nextport.top",
     "bakapie.cf", "ermao.net", "fastestcloud.xyz", "kuaidog005.top", "jichang.123417.xyz",
@@ -78,6 +83,8 @@ INITIAL_SEEDS = [
     "onlysub.mjurl.com", "yuetoto.com", "knjc.cfd", "pqjc.site", "ymjc.cfd",
     "djjc.cfd", "jsjc.cfd", "yfjc.xyz", "342242.icu", "efanyunapi.com",
     "hokkaido-toyoni.com", "smjcdh.top", "nervixapp.top", "boost1.shop",
+
+    # 一二三线 + 低中高端
     "sub.xjhsub1.top", "subscription.sukiaira.com", "let.bnsubservdom.com",
     "api.flowercloud.xyz", "api.oxycontinon.com", "s.suying666.info",
     "afun-waf.trafficmanager.net", "ratchada.terminal69.win", "submit.xz61.cn",
@@ -91,18 +98,22 @@ INITIAL_SEEDS = [
     "sub-1.smjcdh.top", "ss88.beifengyuns.top", "appurl.ppacc.cc",
     "145zz.acyunsa.sbs", "svip.ttyun.eu.org", "qijiavpn.salnc.kuaivpn.app",
     "sss.xlajiao.xyz", "api.kuke-sub.com", "apa.dyljstar.sbs",
+
+    # 更多真实出现过的
     "c0d97821eafa5.nydy.cc", "s.fb.22na.cn", "ycexbktkoctx.sealosgzg.site",
-    "sub.xnyun.wiki",
+    "sub.cocoduck.cc", "cdc502.online", "sub.xnyun.wiki",
     "lnithefedhwadf2qhhald5l23zdadzci.skygo0527.top", "portal.nextport.top",
-    "www.ermao.net", "www.kuaidog005.top",
-    "m11.spwvpn.com", "dy.wenliansub.com",
+    "bakapie.cf", "www.ermao.net", "fastestcloud.xyz", "www.kuaidog005.top",
+    "jichang.123417.xyz", "m11.spwvpn.com", "dy.wenliansub.com",
     "www.elephant223.com", "jkun.waimaosass.icu", "ec.wjkc.xyz",
-    "316.sub987.top", "sub.ssr.sh", "www7th.ga-sub.hair",
-    "r2-c11-dd.0-w.ccwu.cc", "ndy.fn0618.xyz",
-    "www.neteasegames.site", "api.immtel.me",
+    "316.sub987.top", "sub.ssr.sh", "www7th.ga-sub.hair", "suba.f2vip.net",
+    "r2-c11-dd.0-w.ccwu.cc", "ndy.fn0618.xyz", "pokelink.xn--4gsvmh74cwxi.cn",
+    "www.neteasegames.site", "api.immtel.me", "s1.byte33.com",
     "47.242.128.61", "47.76.155.27", "139.196.241.76", "38.175.196.72",
     "skyfd.chuna.nulaiha.aasxuan.yfftftf.shop", "download.8886698.xyz",
     "area.chinadevelop21.org",
+
+    # 低端/白嫖/试用常见
     "sub.xjhsub", "suying666", "flowercloud", "ytoo", "mojie", "glados",
     "ktmcloud", "smallstrawberry", "config-sync", "subtangniu", "subxiandan",
     "bnsubservdom", "starlinkstatic", "urlapi-dodo", "ccsub", "spphhnhg",
@@ -117,13 +128,16 @@ INITIAL_SEEDS = [
     "mzyglc", "acyunsa", "ttyun", "windowsv1", "louwangzhiyu", "kuaivpn",
     "beifengyuns", "ppacc", "ssr.sh", "ga-sub", "f2vip", "fn0618",
     "pokelink", "neteasegames",
+
+    # 中高端常见泄露
     "sub.glados-config.com", "update.glados-config.com", "api.ytoo.xyz",
     "osubscribe.ytoo.xyz", "sub.mojie.me", "sub.mojie.app", "sub.mojie.co",
     "api.suying666.info", "sub.suying666.info", "link.suying666.info",
     "sub.flowercloud.xyz", "api.flowercloud.xyz", "osubscribe.flowercloud.xyz",
     "sub.ktmcloud.id", "api.ktmcloud.id", "sub.smallstrawberry.com",
-    "sub.liangxin.xyz", "api.liangxin.xyz", "sub.byte11.com",
-    "sub.wdyserver.com", "sub0530.wdyserver.com",
+    "sub1.smallstrawberry.com", "sub2.smallstrawberry.com", "sub3.smallstrawberry.com",
+    "sub.liangxin.xyz", "api.liangxin.xyz", "sub.byte11.com", "s1.byte11.com",
+    "s1.byte33.com", "s1.byte77.com", "sub.wdyserver.com", "sub0530.wdyserver.com",
     "sub.config-sync.com", "dp3.config-sync.com", "sub.starlinkstatic.cc",
     "sub.urlapi-dodo.sbs", "no1-svip.urlapi-dodo.sbs", "no7-svip.urlapi-dodo",
     "sub.ccsub.org", "www.ccsub.org", "sub.spphhnhg.top", "ierboryt.spphhnhg.top",
@@ -142,6 +156,7 @@ INITIAL_SEEDS = [
     "sub.nervixapp.top", "sub.boost1.shop", "dy.boost1.shop",
 ]
 
+# 将自带种子统一小写用于去重判断
 INITIAL_SEEDS_LOWER = [s.lower() for s in INITIAL_SEEDS]
 
 # ==================== 工具函数 ====================
@@ -149,7 +164,7 @@ INITIAL_SEEDS_LOWER = [s.lower() for s in INITIAL_SEEDS]
 def get_headers():
     headers = {
         "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "GitHub-Sub-Hunter/2.4"
+        "User-Agent": "GitHub-Sub-Hunter/2.3"
     }
     if GITHUB_TOKEN:
         headers["Authorization"] = f"token {GITHUB_TOKEN}"
@@ -157,14 +172,32 @@ def get_headers():
 
 
 def load_dynamic_seeds() -> list[str]:
+    """读取 txt 文件中的动态种子，并剔除已经在 INITIAL_SEEDS 中的项"""
     path = Path(SEEDS_FILE)
     if path.exists():
         seeds = [line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        # 过滤：py里有的，就不收录
         valid_seeds = [s for s in seeds if s not in INITIAL_SEEDS_LOWER]
-        print(f"📂 已加载 {len(valid_seeds)} 个额外动态种子域名参与搜索")
+        print(f"📂 已加载 {len(valid_seeds)} 个额外动态种子域名")
         return valid_seeds
     else:
+        print("📂 种子文件不存在，将跳过外部读取。")
         return []
+
+
+def save_dynamic_seeds(new_domains: list[str]):
+    """将新发现的域名写入 txt，并严格保证它不包含 INITIAL_SEEDS 里的内容"""
+    path = Path(SEEDS_FILE)
+    existing = []
+    if path.exists():
+        existing = [line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    
+    # 合并、去重，并剔除 python 脚本内自带的域名
+    combined_set = set(existing) | set(d.strip().lower() for d in new_domains)
+    final_seeds = sorted([d for d in combined_set if d not in INITIAL_SEEDS_LOWER])
+    
+    path.write_text("\n".join(final_seeds) + "\n", encoding="utf-8")
+    print(f"💾 已保存 {len(final_seeds)} 个动态种子域名到 {SEEDS_FILE}")
 
 
 def github_code_search(query: str, page: int = 1) -> list[dict]:
@@ -175,6 +208,7 @@ def github_code_search(query: str, page: int = 1) -> list[dict]:
         "page": page
     }
     
+    # 加入防断连/智能重试机制，防止遇到 65 秒限制时直接漏掉当前搜索词
     for attempt in range(3):
         try:
             resp = requests.get(url, headers=get_headers(), params=params, timeout=30)
@@ -199,6 +233,7 @@ def github_code_search(query: str, page: int = 1) -> list[dict]:
 
 
 def get_raw_content(html_url: str) -> str:
+    """获取文件原始内容"""
     raw_url = html_url.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
     try:
         r = requests.get(raw_url, headers=get_headers(), timeout=15)
@@ -210,23 +245,99 @@ def get_raw_content(html_url: str) -> str:
 
 
 def extract_sub_links_from_text(text: str) -> set[str]:
+    """从文本中提取真正的机场订阅链接（排除 GitHub 自身链接）"""
     links = set()
+    # 匹配 http/https 链接
     pattern = re.compile(r'https?://[^\s<>"\'\)\]\}\{\|,\\]{20,500}')
     for m in pattern.findall(text):
         clean = m.rstrip('.,;:!?)\'\"')
         low = clean.lower()
 
+        # 排除 GitHub / 常见无关域名
         if any(x in low for x in ["github.com", "githubusercontent.com", "gist.github", "raw.github"]):
             continue
         if any(x in low for x in ["google.", "youtube.", "facebook.", "twitter.", "x.com", "baidu.com", "zhihu.com"]):
             continue
 
+        # 必须包含订阅特征
         if any(k in low for k in [
             "token=", "sid=", "/api/v1/client/subscribe", "osubscribe.php",
             "subscribe?token", "sub?token", "/link/", "/s?", "clash=", "sub="
         ]):
             links.add(clean)
     return links
+
+
+def is_alive(url: str) -> tuple[str, bool, str, int]:
+    headers = {
+        "User-Agent": "ClashforWindows/0.20.39",
+        "Accept": "*/*",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=TEST_TIMEOUT, allow_redirects=True, stream=True)
+        if r.status_code != 200:
+            return url, False, f"HTTP {r.status_code}", 0
+
+        content = b""
+        for chunk in r.iter_content(1024):
+            content += chunk
+            if len(content) >= 8192:
+                break
+
+        text = content.decode("utf-8", errors="ignore").lower()
+        length = len(text)
+
+        signs = [
+            "proxies:", "proxy-groups:", "rules:", "port:", "socks-port:",
+            "vmess://", "vless://", "trojan://", "ss://", "ssr://", "hysteria",
+            "uuid", "cipher:", "password:", "network:", "ws-opts", "grpc-opts",
+            "server:", "tls:", "reality", "flow:", "client-fingerprint"
+        ]
+        if any(s in text for s in signs):
+            return url, True, "存活", length
+        if length > 120 and "error" not in text[:400] and "not found" not in text[:400]:
+            return url, True, "可能存活", length
+        return url, False, "内容不像订阅", length
+
+    except requests.exceptions.Timeout:
+        return url, False, "超时", 0
+    except Exception as e:
+        return url, False, str(e)[:40], 0
+
+
+def batch_test(urls: list[str]) -> list[tuple[str, int]]:
+    results = []
+    print(f"  开始测活，共 {len(urls)} 个链接...")
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(is_alive, u): u for u in urls}
+        for future in as_completed(futures):
+            url, ok, reason, length = future.result()
+            if ok:
+                results.append((url, length))
+                print(f"    ✅ {url}")
+            else:
+                print(f"    ❌ {url[:80]}... ({reason})")
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
+def extract_domains_from_urls(urls: list[str]) -> set[str]:
+    domains = set()
+    for u in urls:
+        try:
+            parsed = urlparse(u)
+            host = parsed.netloc.lower()
+            if not host or "github" in host:
+                continue
+            if host.startswith("www."):
+                host = host[4:]
+            if re.match(r"^\d+\.\d+\.\d+\.\d+", host):
+                continue
+            if len(host) > 5 and "." in host:
+                domains.add(host)
+        except:
+            pass
+    return domains
 
 
 def send_txt_file(file_path: str, caption: str = "") -> bool:
@@ -259,9 +370,9 @@ def save_and_send(links: list[str], filename: str, caption: str):
 # ==================== 主逻辑 ====================
 
 def main():
-    print("🚀 纯 GitHub 搜索版（极致提速：所有搜索词均只使用1种基础组合）")
+    print("🚀 纯 GitHub 搜索版（极致瘦身：所有搜索词统一单种组合，保留测活）")
     if not GITHUB_TOKEN:
-        print("⚠️  未配置 GITHUB_TOKEN，必定触发严重限流")
+        print("⚠️  未配置 GITHUB_TOKEN，可能触发严厉限流")
     else:
         print("✅ 已检测到 GITHUB_TOKEN")
 
@@ -282,15 +393,20 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"===== GitHub Code Search（共 {len(ALL_SEARCH_TERMS)} 个搜索词）=====")
-    print(f"  - 通用关键词 (极简搜索): {len(general_keywords)} 个")
-    print(f"  - 具体域名精准搜索 (极简搜索): {len(domain_keywords)} 个")
+    print(f"  - 通用关键词 (1种高质量交叉搜索): {len(general_keywords)} 个")
+    print(f"  - 具体域名 (1种基础精准搜索): {len(domain_keywords)} 个")
     print(f"{'='*60}")
 
     for idx, kw in enumerate(ALL_SEARCH_TERMS, 1):
         print(f"\n[{idx}/{len(ALL_SEARCH_TERMS)}] 搜索词: {kw}")
 
-        # 【最新修改】：去掉所有复杂的 6 种组合，全部统一使用最基础的 1 种组合
-        queries = [f'"{kw}"']
+        # 【核心优化】：统一改为 1 种组合
+        if kw in general_keywords:
+            # 前37个通用词：专门使用原先质量最高的第2种交叉组合
+            queries = [f'"{kw}" (clash OR v2ray OR subscribe OR 订阅 OR token)']
+        else:
+            # 后面的域名：使用最基础的精确搜索
+            queries = [f'"{kw}"']
 
         for q in queries:
             print(f"  → {q[:75]}...")
@@ -302,27 +418,28 @@ def main():
                         html_url = item.get("html_url", "")
                         if not html_url:
                             continue
+                        # 获取文件内容，从内容中提取真实订阅链接
                         content = get_raw_content(html_url)
                         if content:
                             found = extract_sub_links_from_text(content)
                             all_candidates.update(found)
                 
-                print(f"    第{page}页处理完成 | 当前累计提取链接: {len(all_candidates)}")
+                print(f"    第{page}页处理完成 | 当前真实订阅链接: {len(all_candidates)}")
                 
-                # 速度控制在 2.5 秒，极大降低触发限制的风险
+                # 安全防封速率控制在 3.0 秒
                 time.sleep(3.0)
                 
                 if not items:
                     break
 
     all_candidates = sorted(all_candidates)
-    print(f"\n📦 总共提取到 {len(all_candidates)} 个未测活订阅链接")
+    print(f"\n📦 总共提取到 {len(all_candidates)} 个真实机场订阅链接")
 
     if not all_candidates:
-        print("没有找到订阅链接，结束")
+        print("没有找到真实订阅链接，结束")
         return
 
-    # ==================== 5000个一组分包发送 ====================
+    # 按照 5000 个分一组生成文件并依次发送给电报
     chunk_size = 5000
     total_parts = (len(all_candidates) + chunk_size - 1) // chunk_size
     
@@ -330,12 +447,35 @@ def main():
         chunk = all_candidates[i:i + chunk_size]
         part_idx = (i // chunk_size) + 1
         
-        full_file = f"github_raw_subs_{time_tag}_part{part_idx}.txt"
+        full_file = f"github_real_subs_{time_tag}_part{part_idx}.txt"
         caption = f"📋 GitHub 提取原始订阅 ({part_idx}/{total_parts})\n时间: {now}\n本组数量: {len(chunk)}"
         save_and_send(chunk, full_file, caption)
-        time.sleep(2) 
 
-    print("\n🎉 提取与分开发送全部完成！")
+    # 测活
+    alive_with_score = batch_test(all_candidates)
+    alive_links = [u for u, _ in alive_with_score]
+    print(f"\n✅ 测活完成：存活 {len(alive_links)} / {len(all_candidates)}")
+
+    # 测活后的存活文件不改变结构，作为单独文件发送
+    alive_file = f"alive_subs_{time_tag}.txt"
+    save_and_send(alive_links, alive_file,
+                  f"✅ 存活机场订阅（GitHub来源）\n时间: {now}\n候选: {len(all_candidates)} | 存活: {len(alive_links)}")
+
+    # 自动升级种子库 (提取新存活的域名并去重写入)
+    new_domains = extract_domains_from_urls(alive_links)
+    print(f"\n🧬 本次有效结果涉及 {len(new_domains)} 个域名")
+    
+    if new_domains:
+        save_dynamic_seeds(list(new_domains))
+        
+        domain_file = f"new_domains_{time_tag}.txt"
+        with open(domain_file, "w", encoding="utf-8") as f:
+            for d in sorted(new_domains):
+                f.write(d + "\n")
+        send_txt_file(domain_file, f"🧬 存活来源域名\n时间: {now}\n数量: {len(new_domains)}")
+
+    print("\n🎉 全部完成！")
+
 
 if __name__ == "__main__":
     main()
