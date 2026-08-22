@@ -1,0 +1,62 @@
+name: GitHub 订阅猎手（纯GitHub搜索）
+on:
+  schedule:
+    # 每 7 天运行一次（UTC 00:00 = 北京时间 08:00）
+    - cron: '0 0 */7 * *'
+  workflow_dispatch: # 允许手动点击运行
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    # 必须赋予写权限，才能推送到仓库
+    permissions:
+      contents: write 
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # 使用内置的 GITHUB_TOKEN 签出代码以便后续提交
+        with: 
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: 运行订阅猎手
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python github_sub_hunter.py
+
+      # 自动提交 seeds_domains.txt 回 GitHub 仓库
+      - name: Commit updated seeds
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 1. 先把修改加到暂存区
+          git add seeds_domains.txt || true
+          
+          # 2. 检查是否有文件变化，如果有，先在本地 commit
+          if ! git diff --quiet --cached; then
+            git commit -m "chore: update seeds_domains.txt [skip ci]"
+            
+            # 3. 在 push 前的最后一刻拉取最新代码，自动把本地提交接到远程提交的后面
+            # 注意：如果你的主分支不叫 main 而是 master，请把下面两行的 main 改为 master
+            git pull --rebase origin main
+            
+            # 4. 推送到远程仓库
+            git push origin main
+          else
+            echo "No changes to commit"
+          fi
