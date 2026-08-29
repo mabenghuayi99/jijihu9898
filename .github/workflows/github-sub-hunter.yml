@@ -1,6 +1,5 @@
 name: GitHub 订阅猎手（纯GitHub搜索）
 on:
-  schedule:
   workflow_dispatch: # 允许手动点击运行
 
 jobs:
