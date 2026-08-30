@@ -9,13 +9,13 @@ REQUEST_INTERVAL = 1.0
 RESULT_FILE_PATH = "success_log.txt"
 
 # ==================== Telegram 配置 ====================
-# 自动从 GitHub Secrets 或本地环境变量中读取电报配置
-TELEGRAM_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TG_CHAT_ID", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 def send_telegram_msg(message):
     """发送 Telegram 通知消息"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[!] 未配置 Telegram 密钥，跳过推送")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -24,9 +24,13 @@ def send_telegram_msg(message):
         "parse_mode": "Markdown"
     }
     try:
-        requests.post(url, json=payload, timeout=5)
+        res = requests.post(url, json=payload, timeout=5)
+        if res.status_code == 200:
+            print("[+] Telegram 推送成功")
+        else:
+            print(f"[!] Telegram 推送失败，返回响应: {res.text}")
     except Exception as e:
-        print(f"[!] Telegram 推送失败: {e}")
+        print(f"[!] Telegram 推送异常: {e}")
 
 def get_accounts():
     """直接读取本地 users.txt 文件"""
