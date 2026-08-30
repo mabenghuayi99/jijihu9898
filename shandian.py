@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 LOGIN_URL = "https://su.sssasuper.top/api/v1/passport/auth/login"
 USER_FIELD = "email"
 PWD_FIELD = "password"
-REQUEST_INTERVAL = 0.5    # 多线程下的请求间隔，防止发太快被服务器直接封IP
-MAX_WORKERS = 10          # <<< 在这里修改线程数（例如 10 或 20）
+REQUEST_INTERVAL = 1    # 多线程下的请求间隔，防止发太快被服务器直接封IP
+MAX_WORKERS = 2          # <<< 在这里修改线程数（例如 10 或 20）
 RESULT_FILE_PATH = "success_log.txt"
 SUMMARY_TXT_PATH = "success_summary.txt"
 
