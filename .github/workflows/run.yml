@@ -4,9 +4,9 @@ on:
   # 1. 允许在网页 Actions 页面手动点击按钮运行
   workflow_dispatch:
 
-  # 2. 定时自动运行（例如：每天北京时间早上 8:00 自动运行一次）
+  # 2. 定时自动运行（如需开启定时，取消下方 schedule 前面的注释符 #）
   # schedule:
-  #   - cron: '0 0 * * *'
+  #   - cron: '0 0 * * *'  # 每天北京时间早上 8:00 自动运行一次
 
 jobs:
   build:
@@ -32,9 +32,11 @@ jobs:
       run: |
         python main.py
 
-    - name: 上传成功日志作为 Artifact
+    - name: 上传成功日志和打包TXT作为 Artifact
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: success-log
-        path: success_log.txt
+        name: success-logs
+        path: |
+          success_log.txt
+          success_summary.txt
