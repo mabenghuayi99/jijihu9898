@@ -5,7 +5,7 @@ import time
 LOGIN_URL = "https://su.sssasuper.top/api/v1/passport/auth/login"
 USER_FIELD = "email"
 PWD_FIELD = "password"
-REQUEST_INTERVAL = 0.2
+REQUEST_INTERVAL = 1.0
 RESULT_FILE_PATH = "success_log.txt"
 SUMMARY_TXT_PATH = "success_summary.txt"
 
