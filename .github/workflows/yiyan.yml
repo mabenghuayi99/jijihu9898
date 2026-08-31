@@ -1,0 +1,42 @@
+name: Auto Audit
+
+on:
+  # 1. 允许在网页 Actions 页面手动点击按钮运行
+  workflow_dispatch:
+
+  # 2. 定时自动运行（如需开启定时，取消下方 schedule 前面的注释符 #）
+  # schedule:
+  #   - cron: '0 0 * * *'  # 每天北京时间早上 8:00 自动运行一次
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 签出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Python 环境
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: 安装依赖
+      run: |
+        pip install requests
+
+    - name: 运行审计脚本并注入电报密钥
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        python yiyan.py
+
+    - name: 上传成功日志和打包TXT作为 Artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: success-logs
+        path: |
+          success_log.txt
+          success_summary.txt
