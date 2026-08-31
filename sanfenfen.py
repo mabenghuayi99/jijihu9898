@@ -100,7 +100,7 @@ def main():
     stop_reason = None
 
     # 使用 curl_cffi 模拟浏览器指纹并对齐抓包头
-    with requests.Session(impersonate="chrome112") as session:
+    with requests.Session(impersonate="chrome120") as session:
         session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
