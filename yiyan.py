@@ -19,27 +19,20 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 def send_telegram_file(file_path):
-    """使用 curl_cffi 官方推荐的 multipart 格式发送文件"""
+    """使用标准 files 格式将生成的 TXT 文件发送到 Telegram 聊天窗口"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[!] 未配置 Telegram 密钥，跳过文件发送")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
     try:
         with open(file_path, "rb") as f:
-            file_bytes = f.read()
-            
-        # 按照 curl_cffi 官方示例规范构造 multipart 列表
-        mp = [
-            ("chat_id", (None, str(TELEGRAM_CHAT_ID))),
-            ("caption", (None, "📁 *审计运行结果汇总文件*")),
-            ("document", (os.path.basename(file_path), file_bytes, "text/plain"))
-        ]
-        
-        res = requests.post(url, multipart=mp, timeout=10)
-        if res.status_code == 200:
-            print("[+] Telegram TXT 文件发送成功")
-        else:
-            print(f"[!] Telegram 文件发送失败，返回响应: {res.text}")
+            files = {"document": (os.path.basename(file_path), f, "text/plain")}
+            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": "📁 *审计运行结果汇总文件*"}
+            res = requests.post(url, data=data, files=files, timeout=10)
+            if res.status_code == 200:
+                print("[+] Telegram TXT 文件发送成功")
+            else:
+                print(f"[!] Telegram 文件发送失败，返回响应: {res.text}")
     except Exception as e:
         print(f"[!] Telegram 文件发送异常: {e}")
 
