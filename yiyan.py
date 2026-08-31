@@ -19,20 +19,27 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 def send_telegram_file(file_path):
-    """直接将生成的 TXT 文件发送到 Telegram 聊天窗口"""
+    """使用 curl_cffi 的 multipart 格式将生成的 TXT 文件发送到 Telegram 聊天窗口"""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[!] 未配置 Telegram 密钥，跳过文件发送")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
     try:
         with open(file_path, "rb") as f:
-            files = {"document": f}
-            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": "📁 *审计运行结果汇总文件*"}
-            res = requests.post(url, data=data, files=files, timeout=10)
-            if res.status_code == 200:
-                print("[+] Telegram TXT 文件发送成功")
-            else:
-                print(f"[!] Telegram 文件发送失败，返回响应: {res.text}")
+            file_bytes = f.read()
+            
+        # curl_cffi 要求文件上传使用 multipart 参数
+        mp = [
+            ("chat_id", (None, str(TELEGRAM_CHAT_ID))),
+            ("caption", (None, "📁 *审计运行结果汇总文件*")),
+            ("document", ("success_summary.txt", file_bytes, "text/plain"))
+        ]
+        
+        res = requests.post(url, multipart=mp, timeout=10)
+        if res.status_code == 200:
+            print("[+] Telegram TXT 文件发送成功")
+        else:
+            print(f"[!] Telegram 文件发送失败，返回响应: {res.text}")
     except Exception as e:
         print(f"[!] Telegram 文件发送异常: {e}")
 
@@ -98,17 +105,16 @@ def main():
     consecutive_500_count = 0
     stop_reason = None
 
-    # 使用 curl_cffi 模拟浏览器 TLS 指纹 (impersonate="chrome112") 绕过 Cloudflare 盾
-    with requests.Session(impersonate="chrome112") as session:
-        # 设置和成功抓包完全一致的 Headers
+    # 使用 curl_cffi 并将 impersonate 改为支持的 chrome120
+    with requests.Session(impersonate="chrome120") as session:
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "*/*",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Content-Language": "zh-CN",
             "Origin": BASE_DOMAIN,
             "Referer": f"{BASE_DOMAIN}/",
-            "sec-ch-ua": '"Not:A-Brand";v="99", "Chromium";v="112"',
+            "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
             "sec-fetch-dest": "empty",
