@@ -8,7 +8,7 @@ BASE_DOMAIN = "https://sanfen.gonghailin.xin"
 
 USER_FIELD = "email"
 PWD_FIELD = "password"
-REQUEST_INTERVAL = 0.2
+REQUEST_INTERVAL = 1
 REQUEST_TIMEOUT = (3, 6)         # (连接超时秒数, 读取超时秒数)
 MAX_RUNTIME_MINUTES = 350        # 全局最大运行时间（分钟）
 RESULT_FILE_PATH = "success_log.txt"
