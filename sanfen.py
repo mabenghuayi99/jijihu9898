@@ -2,7 +2,7 @@ import os
 import requests
 import time
 
-LOGIN_URL = "https://sanfen.gonghailin.xin/api/passport/auth/login"
+LOGIN_URL = "https://sanfen.gonghailin.xin"
 USER_FIELD = "email"
 PWD_FIELD = "password"
 REQUEST_INTERVAL = 2
