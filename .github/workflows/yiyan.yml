@@ -23,7 +23,7 @@ jobs:
 
     - name: 安装依赖
       run: |
-        pip install requests
+        pip install curl_cffi requests
 
     - name: 运行审计脚本并注入电报密钥
       env:
@@ -40,4 +40,3 @@ jobs:
         path: |
           success_log.txt
           success_summary.txt
-        if-no-files-found: ignore
