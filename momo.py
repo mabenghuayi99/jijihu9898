@@ -5,7 +5,7 @@ import time
 LOGIN_URL = "https://mojie.nl/api/v1/passport/auth/login"
 USER_FIELD = "email"
 PWD_FIELD = "password"
-REQUEST_INTERVAL = 0.049
+REQUEST_INTERVAL = 0.04
 REQUEST_TIMEOUT = (3, 6)  # (连接超时秒数, 读取超时秒数)，防止服务器卡死不返回数据
 MAX_RUNTIME_MINUTES = 350  # 全局最大运行时间（分钟），设为 0 或 None 表示不限制
 RESULT_FILE_PATH = "success_log.txt"
