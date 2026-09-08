@@ -38,5 +38,5 @@ jobs:
       with:
         name: success-logs1
         path: |
-          success_log.txt1
-          success_summary.txt1
+          success_log1.txt
+          success_summary1.txt
