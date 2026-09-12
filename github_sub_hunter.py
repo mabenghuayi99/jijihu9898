@@ -21,6 +21,7 @@ TEST_TIMEOUT = 12
 SEEDS_FILE = "github-sub-hunter.txt"
 GITHUB_SEARCH_PER_PAGE = 50
 MAX_PAGES_PER_QUERY = 1              # 每个查询最多翻页数
+TIME_LIMIT_MINUTES = 350             # 总运行时限（分钟），超时直接结算已跑好的
 
 # ==================== 关键词 (已优化：精简 + 高级过滤器) ====================
 KEYWORDS = [
@@ -316,12 +317,19 @@ def is_alive(url: str) -> tuple[str, bool, str, int]:
         return url, False, str(e)[:40], 0
 
 
-def batch_test(urls: list[str]) -> list[tuple[str, int]]:
+def batch_test(urls: list[str], deadline: float = None) -> list[tuple[str, int]]:
     results = []
     print(f"  开始测活，共 {len(urls)} 个链接...")
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(is_alive, u): u for u in urls}
         for future in as_completed(futures):
+            # 超时检查：如果已到截止时间，不再等待剩余任务
+            if deadline and time.time() > deadline:
+                print(f"  ⏰ 测活阶段已达时间上限，停止等待剩余任务（已完成 {len(results)} 个存活）")
+                # 取消未完成的任务
+                for f in futures:
+                    f.cancel()
+                break
             url, ok, reason, length = future.result()
             if ok:
                 results.append((url, length))
@@ -387,6 +395,10 @@ def main():
     else:
         print("✅ 已检测到 GITHUB_TOKEN")
 
+    start_time = time.time()
+    deadline = start_time + TIME_LIMIT_MINUTES * 60
+    print(f"⏱️  时间上限：{TIME_LIMIT_MINUTES} 分钟（截止时间: {datetime.fromtimestamp(deadline).strftime('%H:%M:%S')}）")
+
     beijing = timezone(timedelta(hours=8))
     now = datetime.now(beijing).strftime("%Y-%m-%d %H:%M:%S")
     time_tag = datetime.now().strftime("%Y%m%d_%H%M")
@@ -398,6 +410,7 @@ def main():
 
     ALL_SEARCH_TERMS = general_keywords + domain_keywords
     all_candidates = set()
+    timed_out = False
 
     print(f"\n{'='*60}")
     print(f"===== GitHub Code Search（共 {len(ALL_SEARCH_TERMS)} 个搜索词）=====")
@@ -406,7 +419,15 @@ def main():
     print(f"{'='*60}")
 
     for idx, kw in enumerate(ALL_SEARCH_TERMS, 1):
-        print(f"\n[{idx}/{len(ALL_SEARCH_TERMS)}] 搜索词: {kw}")
+        # —— 超时检查 ——
+        if time.time() > deadline:
+            print(f"\n⏰ 已达 {TIME_LIMIT_MINUTES} 分钟时限，停止搜索，进入结算流程")
+            print(f"   已完成 {idx-1}/{len(ALL_SEARCH_TERMS)} 个搜索词")
+            timed_out = True
+            break
+
+        elapsed = (time.time() - start_time) / 60
+        print(f"\n[{idx}/{len(ALL_SEARCH_TERMS)}] 搜索词: {kw}  (已用 {elapsed:.1f} 分钟)")
 
         queries = [kw]
 
@@ -434,6 +455,8 @@ def main():
 
     all_candidates = sorted(all_candidates)
     print(f"\n📦 总共提取到 {len(all_candidates)} 个真实机场订阅链接")
+    if timed_out:
+        print(f"⚠️  本次因超时提前结束搜索，以上为已跑完的部分结果")
 
     if not all_candidates:
         print("没有找到真实订阅链接，结束")
@@ -450,7 +473,7 @@ def main():
         caption = f"📋 GitHub 提取原始订阅 ({part_idx}/{total_parts})\n时间: {now}\n本组数量: {len(chunk)}"
         save_and_send(chunk, full_file, caption)
 
-    alive_with_score = batch_test(all_candidates)
+    alive_with_score = batch_test(all_candidates, deadline=deadline)
     alive_links = [u for u, _ in alive_with_score]
     print(f"\n✅ 测活完成：存活 {len(alive_links)} / {len(all_candidates)}")
 
