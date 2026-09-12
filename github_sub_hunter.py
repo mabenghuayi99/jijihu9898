@@ -4,6 +4,7 @@
 import os
 import re
 import time
+import base64
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
@@ -218,17 +219,27 @@ def get_raw_content(html_url: str) -> str:
 
 
 def extract_sub_links_from_text(text: str) -> set[str]:
-    """从文本中提取真正的机场订阅链接（排除 GitHub 自身链接）"""
+    """从文本中提取真正的机场订阅链接（排除 GitHub 自身链接和假模板）"""
     links = set()
     
-    # 【增强1：专门提取 proxy-providers 里的 url: 链接】
+    # 排除的黑名单词汇（假链接、占位符、非节点订阅）
+    fake_signs = ["example.", "your_token", "your_url", "dummy", "sample", "domain.com", "test.com", "replace", "insert", "xxxx", ".yaml\"", ".yml\""]
+    
+    # 必须包含的真实订阅特征
+    real_signs = ["token", "sid", "subscribe", "sub?", "/link/", "clash=", "api/v1", "osubscribe", "sub="]
+
+    # 1. 专门提取 proxy-providers 里的 url: 链接
     provider_pattern = re.compile(r'url:\s*[\'\"](https?://[^\s\'\"]+)[\'\"]')
     for m in provider_pattern.findall(text):
         low = m.lower()
-        if not any(x in low for x in ["github.com", "githubusercontent.com", "gist.github", "raw.github", "google.", "youtube.", "facebook.", "twitter.", "x.com", "baidu.com", "zhihu.com"]):
+        if any(x in low for x in ["github.com", "githubusercontent.com", "gist.github", "raw.github", "google.", "youtube.", "facebook.", "twitter.", "x.com", "baidu.com", "zhihu.com"]):
+            continue
+        if any(x in low for x in fake_signs):
+            continue
+        if any(k in low for k in real_signs):
             links.add(m)
 
-    # 【增强2：通用正则提取带有订阅特征的链接】
+    # 2. 通用正则提取带有订阅特征的链接
     pattern = re.compile(r'https?://[^\s<>"\'\)\]\}\{\|,\\]{20,500}')
     for m in pattern.findall(text):
         clean = m.rstrip('.,;:!?)\'\"')
@@ -238,11 +249,10 @@ def extract_sub_links_from_text(text: str) -> set[str]:
             continue
         if any(x in low for x in ["google.", "youtube.", "facebook.", "twitter.", "x.com", "baidu.com", "zhihu.com"]):
             continue
+        if any(x in low for x in fake_signs):
+            continue
 
-        if any(k in low for k in [
-            "token=", "sid=", "/api/v1/client/subscribe", "osubscribe.php",
-            "subscribe?token", "sub?token", "/link/", "/s?", "clash=", "sub="
-        ]):
+        if any(k in low for k in real_signs):
             links.add(clean)
             
     return links
@@ -250,7 +260,7 @@ def extract_sub_links_from_text(text: str) -> set[str]:
 
 def is_alive(url: str) -> tuple[str, bool, str, int]:
     headers = {
-        "User-Agent": "ClashforWindows/0.20.39",
+        "User-Agent": "clash-verge/v1.4.5",
         "Accept": "*/*",
     }
     try:
@@ -261,10 +271,11 @@ def is_alive(url: str) -> tuple[str, bool, str, int]:
             content = b""
             for chunk in r.iter_content(1024):
                 content += chunk
-                if len(content) >= 8192:
+                if len(content) >= 16384:  # 读取 16KB
                     break
 
-            text = content.decode("utf-8", errors="ignore").lower()
+            text = content.decode("utf-8", errors="ignore")
+            low = text.lower()
             length = len(text)
 
             signs = [
@@ -273,11 +284,31 @@ def is_alive(url: str) -> tuple[str, bool, str, int]:
                 "uuid", "cipher:", "password:", "network:", "ws-opts", "grpc-opts",
                 "server:", "tls:", "reality", "flow:", "client-fingerprint"
             ]
-            if any(s in text for s in signs):
-                return url, True, "存活", length
-            if length > 120 and "error" not in text[:400] and "not found" not in text[:400]:
-                return url, True, "可能存活", length
-            return url, False, "内容不像订阅", length
+            
+            # 1. 检查明文特征
+            if any(s in low for s in signs):
+                return url, True, "存活(明文)", length
+            
+            # 2. 检查 Base64 编码的订阅
+            b64_text = "".join(text.split())
+            if len(b64_text) > 100: 
+                try:
+                    missing_padding = len(b64_text) % 4
+                    if missing_padding:
+                        b64_text += '=' * (4 - missing_padding)
+                    decoded_bytes = base64.b64decode(b64_text)
+                    decoded_str = decoded_bytes.decode('utf-8', errors='ignore').lower()
+                    if any(s in decoded_str for s in ["vmess://", "vless://", "trojan://", "ss://", "ssr://"]):
+                        return url, True, "存活(Base64)", length
+                except:
+                    pass
+            
+            # 3. 明确的失败特征
+            fail_signs = ["error", "not found", "invalid", "failed", "denied", "blocked", "false", "unauthorized", "forbidden"]
+            if any(x in low for x in fail_signs):
+                return url, False, "返回报错信息", length
+
+            return url, False, "无节点特征", length
 
     except requests.exceptions.Timeout:
         return url, False, "超时", 0
@@ -294,7 +325,7 @@ def batch_test(urls: list[str]) -> list[tuple[str, int]]:
             url, ok, reason, length = future.result()
             if ok:
                 results.append((url, length))
-                print(f"    ✅ {url}")
+                print(f"    ✅ {url} ({reason})")
             else:
                 print(f"    ❌ {url[:80]}... ({reason})")
     results.sort(key=lambda x: x[1], reverse=True)
@@ -350,7 +381,7 @@ def save_and_send(links: list[str], filename: str, caption: str):
 # ==================== 主逻辑 ====================
 
 def main():
-    print("🚀 纯 GitHub 搜索版（精准配置挖掘 + 测活）")
+    print("🚀 纯 GitHub 搜索版（精准配置挖掘 + 严格测活）")
     if not GITHUB_TOKEN:
         print("⚠️  未配置 GITHUB_TOKEN，可能触发严厉限流")
     else:
@@ -377,7 +408,6 @@ def main():
     for idx, kw in enumerate(ALL_SEARCH_TERMS, 1):
         print(f"\n[{idx}/{len(ALL_SEARCH_TERMS)}] 搜索词: {kw}")
 
-        # 统一使用关键词原样搜索 (已包含高级过滤器语法)
         queries = [kw]
 
         for q in queries:
